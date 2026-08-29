@@ -3,10 +3,10 @@ use std::time::Duration;
 use ratatui::{
     Frame,
     crossterm::event::{self, Event, KeyCode},
-    layout::{Alignment, Constraint, Layout},
+    layout::{Constraint, Layout},
     style::{Color, Style, Stylize},
     text::{Line, ToSpan},
-    widgets::{Block, Borders, List, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListState, Paragraph},
 };
 
 use tui_input::{Input, backend::crossterm::EventHandler};
@@ -75,12 +75,13 @@ enum Message {
     Increment,
     Decrement,
     Quit,
-    CreateTask,
+    OpenCreateTask,
     CancelCreateTask,
     CreateTaskSelectUpwardElement,
     CreateTaskSelectDownwardElement,
     CreateTaskCancelEditing,
     CreateTaskStartEditing,
+    CreateTask,
 }
 
 fn update(model: &mut Model, msg: Message) -> Option<Message> {
@@ -95,7 +96,7 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
             // You can handle cleanup and exit here
             model.running_state = RunningState::Done;
         }
-        Message::CreateTask => {
+        Message::OpenCreateTask => {
             model.app_view = AppView::CreateTask;
         }
         Message::CancelCreateTask => {
@@ -119,6 +120,16 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
         Message::CreateTaskStartEditing => {
             model.create_task_input_element_state = InputElementState::Editing;
         }
+        Message::CreateTask => {
+            model.tasks.push(Task {
+                name: model.inputs_state.name.input.to_string(),
+                description: Some(model.inputs_state.description.input.to_string()),
+            });
+            model.inputs_state.name.input.reset();
+            model.inputs_state.description.input.reset();
+            model.app_view = AppView::ListView;
+            model.list_state.select_first();
+        }
     };
     None
 }
@@ -129,20 +140,6 @@ fn main() -> color_eyre::Result<()> {
     let mut model = Model::default();
     model.app_view = AppView::ListView;
     model.create_task_selected_element = 0;
-    model.tasks.push(Task {
-        name: "Task 1".to_string(),
-        description: Some("description".to_string()),
-    });
-
-    model.tasks.push(Task {
-        name: "Task 2".to_string(),
-        description: Some("description".to_string()),
-    });
-
-    model.tasks.push(Task {
-        name: "Task 3".to_string(),
-        description: Some("description".to_string()),
-    });
 
     model.list_state.select_first();
 
@@ -173,23 +170,23 @@ fn view(model: &mut Model, frame: &mut Frame) {
             ])
             .areas(frame.area());
 
-            let help_message = Line::from_iter(if model.is_create_task_editing() {
-                [
+            let help_message = if model.is_create_task_editing() {
+                Line::from_iter([
                     "Press ".to_span(),
                     "Esc".bold(),
                     " to stop editing, ".to_span(),
-                    "Enter".bold(),
-                    " to record the message".to_span(),
-                ]
+                ])
             } else {
-                [
+                Line::from_iter([
                     "Press ".to_span(),
-                    "q".bold(),
-                    " to exit, ".to_span(),
-                    "e".bold(),
-                    " to start editing.".to_span(),
-                ]
-            });
+                    "Esc".bold(),
+                    " to cancel create task, ".to_span(),
+                    "i".bold(),
+                    " to start editing, ".to_span(),
+                    "Enter".bold(),
+                    " to create the task.".to_span(),
+                ])
+            };
 
             frame.render_widget(help_message, header_area);
 
@@ -283,6 +280,7 @@ fn handle_key(key: event::KeyEvent, model: &mut Model, event: Event) -> Option<M
                 InputElementState::Editing => match key.code {
                     KeyCode::Esc => Some(Message::CreateTaskCancelEditing),
                     _ => {
+                        // TODO: this looks ugly, please improve it.
                         let selected_input: &mut Input = if model.create_task_selected_element == 0
                         {
                             &mut model.inputs_state.name.input
@@ -296,14 +294,16 @@ fn handle_key(key: event::KeyEvent, model: &mut Model, event: Event) -> Option<M
                 InputElementState::Idle => match key.code {
                     KeyCode::Char('j') => Some(Message::CreateTaskSelectDownwardElement),
                     KeyCode::Char('k') => Some(Message::CreateTaskSelectUpwardElement),
-                    KeyCode::Char('e') => Some(Message::CreateTaskStartEditing),
+                    KeyCode::Char('i') => Some(Message::CreateTaskStartEditing),
+                    KeyCode::Enter => Some(Message::CreateTask),
+                    KeyCode::Esc => Some(Message::CancelCreateTask),
                     _ => None,
                 },
             },
             AppView::ListView => match key.code {
                 KeyCode::Char('j') => Some(Message::Increment),
                 KeyCode::Char('k') => Some(Message::Decrement),
-                KeyCode::Char('c') => Some(Message::CreateTask),
+                KeyCode::Char('c') => Some(Message::OpenCreateTask),
                 _ => None,
             },
         },
