@@ -141,8 +141,6 @@ fn main() -> color_eyre::Result<()> {
     model.app_view = AppView::ListView;
     model.create_task_selected_element = 0;
 
-    model.list_state.select_first();
-
     while model.running_state != RunningState::Done {
         // Render the current view
         terminal.draw(|f| view(&mut model, f))?;
