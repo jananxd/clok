@@ -6,5 +6,8 @@ edition = "2024"
 [dependencies]
 color-eyre = "0.6.5"
 crossterm = "0.29.0"
+chrono = "0.4.45"
+dirs = "5.0"
 ratatui = "0.30.2"
+rusqlite = { version = "0.40.1", features = ["bundled", "chrono"] }
 tui-input = "*"

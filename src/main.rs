@@ -1,3 +1,5 @@
+pub mod repository;
+
 use std::time::Duration;
 
 use ratatui::{
@@ -9,6 +11,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListState, Paragraph},
 };
 
+use crate::repository::{NewTask, Repository, Task};
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 #[derive(Debug, Default)]
@@ -39,6 +42,9 @@ struct Model {
     inputs_state: SelectedInputState,
     create_task_selected_element: i32,
     create_task_input_element_state: InputElementState,
+    // used to determine whether there's a task that the user wants to delete and currently in progress and waiting for confirmation.
+    selected_delete_task_id: Option<i32>,
+    repository: Repository,
 }
 
 impl Model {
@@ -48,12 +54,6 @@ impl Model {
             InputElementState::Idle => false,
         };
     }
-}
-
-#[derive(Debug, Clone)]
-struct Task {
-    name: String,
-    description: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -82,6 +82,9 @@ enum Message {
     CreateTaskCancelEditing,
     CreateTaskStartEditing,
     CreateTask,
+    DeleteTask,
+    CancelDeleteTask,
+    ConfirmDeleteTask,
 }
 
 fn update(model: &mut Model, msg: Message) -> Option<Message> {
@@ -121,14 +124,48 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
             model.create_task_input_element_state = InputElementState::Editing;
         }
         Message::CreateTask => {
-            model.tasks.push(Task {
+            let new_task = NewTask {
                 name: model.inputs_state.name.input.to_string(),
                 description: Some(model.inputs_state.description.input.to_string()),
-            });
-            model.inputs_state.name.input.reset();
-            model.inputs_state.description.input.reset();
-            model.app_view = AppView::ListView;
-            model.list_state.select_first();
+            };
+            let add_task_result = model.repository.add_task(&new_task);
+
+            match add_task_result {
+                Ok(task) => {
+                    model.tasks.push(task);
+                    model.inputs_state.name.input.reset();
+                    model.inputs_state.description.input.reset();
+                    model.app_view = AppView::ListView;
+                    model.list_state.select_first();
+                }
+                Err(error) => {
+                    println!("error {}", error);
+                }
+            }
+        }
+        Message::DeleteTask => {
+            if let Some(selected_index) = model.list_state.selected() {
+                if let Some(selected_task) = model
+                    .tasks
+                    .iter()
+                    .enumerate()
+                    .find(|&(index, _)| index == selected_index)
+                {
+                    let (_, task) = selected_task;
+                    model.selected_delete_task_id = Some(task.id());
+                }
+            }
+        }
+        Message::CancelDeleteTask => {
+            model.selected_delete_task_id = None;
+        }
+        Message::ConfirmDeleteTask => {
+            if let Some(task_id) = model.selected_delete_task_id
+                && model.repository.delete_task(&task_id).is_ok()
+            {
+                model.selected_delete_task_id = None;
+                model.tasks.retain(|task| task.id() != task_id);
+            }
         }
     };
     None
@@ -140,6 +177,15 @@ fn main() -> color_eyre::Result<()> {
     let mut model = Model::default();
     model.app_view = AppView::ListView;
     model.create_task_selected_element = 0;
+    model
+        .repository
+        .init()
+        .expect("cannot proceed with the application without creating the tables.");
+    model.tasks = model
+        .repository
+        .get_tasks()
+        .expect("we don't expect this fail, please take a look at the implementation.");
+    model.list_state.select_first();
 
     while model.running_state != RunningState::Done {
         // Render the current view
@@ -238,7 +284,22 @@ fn view(model: &mut Model, frame: &mut Frame) {
             }
         }
         AppView::ListView => {
-            let task_names: Vec<&str> = model.tasks.iter().map(|task| task.name.as_str()).collect();
+            let task_names: Vec<String> = model
+                .tasks
+                .iter()
+                .map(|task| {
+                    if let Some(selected_task) = model.selected_delete_task_id
+                        && selected_task == task.id()
+                    {
+                        return format!(
+                            "Please press \"y\" to continue or \"n\" to cancel deletion of: {}",
+                            task.name()
+                        );
+                    }
+
+                    task.name().to_string()
+                })
+                .collect();
 
             let b = Block::default()
                 .title(Line::from("Press \"q\" to exit").left_aligned())
@@ -302,6 +363,9 @@ fn handle_key(key: event::KeyEvent, model: &mut Model, event: Event) -> Option<M
                 KeyCode::Char('j') => Some(Message::Increment),
                 KeyCode::Char('k') => Some(Message::Decrement),
                 KeyCode::Char('c') => Some(Message::OpenCreateTask),
+                KeyCode::Char('d') => Some(Message::DeleteTask),
+                KeyCode::Char('y') => Some(Message::ConfirmDeleteTask),
+                KeyCode::Char('n') => Some(Message::CancelDeleteTask),
                 _ => None,
             },
         },
