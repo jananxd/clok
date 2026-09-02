@@ -8,8 +8,5 @@
 
 ## August 30, 2026
 - [x] Setup a localdb like SQLite so we can save the tasks and time entry records in there.
-- [ ] we wanna save the tasks to the local DB
+- [x] we wanna save the tasks to the local DB
 - [ ] Do the time entry functionality with stopwatch. Just a simple one wherein when they enter specific task, they can start+stop the timer. When the timer is active, we should have the stopwatch running on the task list view.
-
-## August 31, 2026
-- [ ] we wanna allow users to use github to sync/backup their data so it's purely on their end and locally.
