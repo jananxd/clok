@@ -374,8 +374,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
                         let current_duration = now - local_start_time;
                         // we need to calculate the difference from now and when it started.
                         return format!(
-                            "{}: {}",
-                            task.name().to_string(),
+                            "▶ {} ⏱ {}",
+                            task.name(),
                             format_duration(&current_duration)
                         );
                     }
