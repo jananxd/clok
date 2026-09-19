@@ -1,6 +1,9 @@
 pub mod repository;
 
+use std::collections::HashMap;
 use std::time::Duration;
+
+use chrono::{DateTime, Local, TimeDelta, Utc};
 
 use ratatui::{
     Frame,
@@ -11,7 +14,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListState, Paragraph},
 };
 
-use crate::repository::{NewTask, Repository, Task};
+use crate::repository::{NewTask, Repository, StartTimerPayload, Task, TimeEntry};
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 #[derive(Debug, Default)]
@@ -45,6 +48,7 @@ struct Model {
     // used to determine whether there's a task that the user wants to delete and currently in progress and waiting for confirmation.
     selected_delete_task_id: Option<i32>,
     repository: Repository,
+    active_timers: HashMap<i32, TimeEntry>,
 }
 
 impl Model {
@@ -53,6 +57,22 @@ impl Model {
             InputElementState::Editing => true,
             InputElementState::Idle => false,
         };
+    }
+
+    fn get_in_cursor_task(&self) -> Option<&Task> {
+        if let Some(selected_index) = self.list_state.selected() {
+            if let Some(selected_task) = self
+                .tasks
+                .iter()
+                .enumerate()
+                .find(|&(index, _)| index == selected_index)
+            {
+                let (_, task) = selected_task;
+                return Some(task);
+            }
+        }
+
+        None
     }
 }
 
@@ -85,6 +105,19 @@ enum Message {
     DeleteTask,
     CancelDeleteTask,
     ConfirmDeleteTask,
+    ToggleTimer,
+}
+
+const ONE_HOUR_IN_SECONDS: i64 = 3600;
+
+fn format_duration(delta: &TimeDelta) -> String {
+    let total_seconds = delta.num_seconds();
+
+    let hours = total_seconds / ONE_HOUR_IN_SECONDS;
+    let minutes = (total_seconds % ONE_HOUR_IN_SECONDS) / 60;
+    let seconds = total_seconds % 60;
+
+    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
 
 fn update(model: &mut Model, msg: Message) -> Option<Message> {
@@ -167,6 +200,34 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
                 model.tasks.retain(|task| task.id() != task_id);
             }
         }
+        Message::ToggleTimer => {
+            if let Some(task) = model.get_in_cursor_task() {
+                match model.active_timers.get(&task.id()) {
+                    Some(time_entry) => match model.repository.stop_timer(time_entry.id()) {
+                        Ok(_) => {
+                            model.active_timers.remove(&time_entry.id());
+                        }
+                        Err(_) => {
+                            // TODO: handle the error later, we should display an error with Clear and ask the user to retry the action.
+                        }
+                    },
+                    None => {
+                        let start_timer_payload = StartTimerPayload {
+                            start_time: Utc::now(),
+                            task_id: task.id(),
+                        };
+                        match model.repository.start_timer(&start_timer_payload) {
+                            Ok(task_entry) => {
+                                model.active_timers.insert(task.id(), task_entry);
+                            }
+                            Err(_) => {
+                                // TODO: show an error here, and ask the user to retry it.
+                            }
+                        }
+                    }
+                }
+            }
+        }
     };
     None
 }
@@ -186,6 +247,14 @@ fn main() -> color_eyre::Result<()> {
         .get_tasks()
         .expect("we don't expect this fail, please take a look at the implementation.");
     model.list_state.select_first();
+
+    for time_entry in model
+        .repository
+        .get_active_timers(model.tasks.iter().map(|task| task.id()).collect())
+        .expect("we don't expect this to fail, especially on start up")
+    {
+        model.active_timers.insert(time_entry.id, time_entry);
+    }
 
     while model.running_state != RunningState::Done {
         // Render the current view
@@ -297,6 +366,20 @@ fn view(model: &mut Model, frame: &mut Frame) {
                         );
                     }
 
+                    // we wanna check if the curren task in the iteration have an active timer, if yes, then we display a different message.
+                    if let Some(time_entry) = model.active_timers.get(&task.id()) {
+                        let now = Local::now();
+                        let local_start_time = time_entry.start_time.with_timezone(&Local);
+
+                        let current_duration = now - local_start_time;
+                        // we need to calculate the difference from now and when it started.
+                        return format!(
+                            "{}: {}",
+                            task.name().to_string(),
+                            format_duration(&current_duration)
+                        );
+                    }
+
                     task.name().to_string()
                 })
                 .collect();
@@ -366,6 +449,7 @@ fn handle_key(key: event::KeyEvent, model: &mut Model, event: Event) -> Option<M
                 KeyCode::Char('d') => Some(Message::DeleteTask),
                 KeyCode::Char('y') => Some(Message::ConfirmDeleteTask),
                 KeyCode::Char('n') => Some(Message::CancelDeleteTask),
+                KeyCode::Char(' ') => Some(Message::ToggleTimer),
                 _ => None,
             },
         },

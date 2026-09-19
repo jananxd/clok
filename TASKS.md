@@ -10,3 +10,7 @@
 - [x] Setup a localdb like SQLite so we can save the tasks and time entry records in there.
 - [x] we wanna save the tasks to the local DB
 - [ ] Do the time entry functionality with stopwatch. Just a simple one wherein when they enter specific task, they can start+stop the timer. When the timer is active, we should have the stopwatch running on the task list view.
+
+## Sept 12, 2026
+- [ ] Implement the start timer
+- [ ] Make sure on the initial run of the app, we will get the tasks active timers.
