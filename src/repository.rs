@@ -42,7 +42,7 @@ pub struct TimeEntry {
     pub id: i32,
     pub start_time: DateTime<Utc>,
     pub end_time: Option<DateTime<Utc>>,
-    task_id: i32,
+    pub task_id: i32,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }

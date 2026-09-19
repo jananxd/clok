@@ -171,9 +171,7 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
                     model.app_view = AppView::ListView;
                     model.list_state.select_first();
                 }
-                Err(error) => {
-                    println!("error {}", error);
-                }
+                Err(_) => {}
             }
         }
         Message::DeleteTask => {
@@ -217,8 +215,8 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
                             task_id: task.id(),
                         };
                         match model.repository.start_timer(&start_timer_payload) {
-                            Ok(task_entry) => {
-                                model.active_timers.insert(task.id(), task_entry);
+                            Ok(time_entry) => {
+                                model.active_timers.insert(task.id(), time_entry);
                             }
                             Err(_) => {
                                 // TODO: show an error here, and ask the user to retry it.
@@ -253,7 +251,7 @@ fn main() -> color_eyre::Result<()> {
         .get_active_timers(model.tasks.iter().map(|task| task.id()).collect())
         .expect("we don't expect this to fail, especially on start up")
     {
-        model.active_timers.insert(time_entry.id, time_entry);
+        model.active_timers.insert(time_entry.task_id, time_entry);
     }
 
     while model.running_state != RunningState::Done {
@@ -372,7 +370,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
                         let local_start_time = time_entry.start_time.with_timezone(&Local);
 
                         let current_duration = now - local_start_time;
-                        // we need to calculate the difference from now and when it started.
                         return format!(
                             "▶ {} ⏱ {}",
                             task.name(),
