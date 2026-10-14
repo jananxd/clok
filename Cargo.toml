@@ -11,3 +11,7 @@ dirs = "5.0"
 ratatui = "0.30.2"
 rusqlite = { version = "0.40.1", features = ["bundled", "chrono"] }
 tui-input = "*"
+serde = { version = "1.0.229", features = ["derive"] }
+webbrowser = "1.2.4"
+tokio = { version = "1.53.2", features = ["full"] }
+reqwest = { version = "0.13.5", features = ["json"] }

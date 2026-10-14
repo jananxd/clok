@@ -3,7 +3,7 @@ pub mod repository;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::{DateTime, Local, TimeDelta, Utc};
+use chrono::{Local, TimeDelta, Utc};
 
 use ratatui::{
     Frame,
@@ -11,11 +11,21 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Style, Stylize},
     text::{Line, ToSpan},
-    widgets::{Block, Borders, List, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListState, Paragraph},
 };
+
+use serde::{Deserialize, Serialize};
+use tokio::runtime::Runtime;
 
 use crate::repository::{NewTask, Repository, StartTimerPayload, Task, TimeEntry};
 use tui_input::{Input, backend::crossterm::EventHandler};
+
+const API_URL: &str = "http://localhost:3000";
+
+#[derive(Deserialize)]
+struct AuthInitResponseBody {
+    url: String,
+}
 
 #[derive(Debug, Default)]
 struct InputState {
@@ -49,6 +59,8 @@ struct Model {
     selected_delete_task_id: Option<i32>,
     repository: Repository,
     active_timers: HashMap<i32, TimeEntry>,
+    is_logging_in: bool,
+    error_message: String, // whether the API request is still in flight.
 }
 
 impl Model {
@@ -88,6 +100,7 @@ enum AppView {
     #[default]
     ListView,
     CreateTask,
+    LoginView,
 }
 
 #[derive(PartialEq)]
@@ -106,6 +119,9 @@ enum Message {
     CancelDeleteTask,
     ConfirmDeleteTask,
     ToggleTimer,
+    InitiateLogin,
+    CancelLogin,
+    CancelErrorMessage,
 }
 
 const ONE_HOUR_IN_SECONDS: i64 = 3600;
@@ -120,7 +136,7 @@ fn format_duration(delta: &TimeDelta) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
 
-fn update(model: &mut Model, msg: Message) -> Option<Message> {
+async fn update(model: &mut Model, msg: Message) -> Option<Message> {
     match msg {
         Message::Increment => {
             model.list_state.select_next();
@@ -226,11 +242,39 @@ fn update(model: &mut Model, msg: Message) -> Option<Message> {
                 }
             }
         }
+        Message::InitiateLogin => {
+            model.app_view = AppView::LoginView;
+            model.is_logging_in = true;
+            let client = reqwest::Client::new();
+            match client.post(format!("{}/auth/init", API_URL)).send().await {
+                Ok(response) => match response.json::<AuthInitResponseBody>().await {
+                    Ok(parsed_response) => {
+                        println!("I'm here");
+                        if webbrowser::open(parsed_response.url.as_str()).is_ok() {
+                            // ...
+                        }
+                    }
+                    Err(error) => {
+                        println!("I have an error {}", error);
+                    }
+                },
+                Err(error) => {
+                    println!("I have an error {}", error);
+                }
+            }
+        }
+        Message::CancelLogin => {
+            model.app_view = AppView::ListView;
+        }
+        Message::CancelErrorMessage => {
+            model.error_message = String::from("");
+        }
     };
     None
 }
 
-fn main() -> color_eyre::Result<()> {
+#[tokio::main]
+async fn main() -> color_eyre::Result<()> {
     tui::install_panic_hook();
     let mut terminal = tui::init_terminal()?;
     let mut model = Model::default();
@@ -259,11 +303,11 @@ fn main() -> color_eyre::Result<()> {
         terminal.draw(|f| view(&mut model, f))?;
 
         // Handle events and map to a Message
-        let mut current_msg = handle_event(&mut model)?;
+        let mut current_msg = handle_event(&mut model).await?;
 
         // Process updates as long as they return a non-None message
         while current_msg.is_some() {
-            current_msg = update(&mut model, current_msg.unwrap());
+            current_msg = update(&mut model, current_msg.unwrap()).await;
         }
     }
 
@@ -385,6 +429,9 @@ fn view(model: &mut Model, frame: &mut Frame) {
                 .title(Line::from("Press \"q\" to exit").left_aligned())
                 .title(Line::from("Clok").centered())
                 .title(Line::from("Press \"c\" to create new task").right_aligned())
+                // TODO: we want to have a different state, when they press something, we want to render a Clear(), and show another screen
+                // saying the instructions that they need like how they do it on Claude Code.
+                .title_bottom(Line::from("Press \"l\" to login").left_aligned())
                 .borders(Borders::ALL);
 
             let list = List::new(task_names)
@@ -396,10 +443,30 @@ fn view(model: &mut Model, frame: &mut Frame) {
 
             frame.render_stateful_widget(list, frame.area(), &mut model.list_state);
         }
+        AppView::LoginView => {
+            let popup_block = Block::bordered().title("Popup");
+            let paragraph = Paragraph::new(if model.is_logging_in {
+                "Opening the browser..."
+            } else {
+                "If the browser didn't open, please open this link: to continue with the login"
+            })
+            .block(popup_block);
+            frame.render_widget(paragraph, frame.area());
+        }
+    }
+
+    if !model.error_message.is_empty() {
+        let popup_block = Block::bordered().title("Error!");
+        let centered_area = frame
+            .area()
+            .centered(Constraint::Percentage(60), Constraint::Percentage(60));
+        frame.render_widget(Clear, centered_area);
+        let paragraph = Paragraph::new(model.error_message.to_string()).block(popup_block);
+        frame.render_widget(paragraph, centered_area);
     }
 }
 
-fn handle_event(model: &mut Model) -> color_eyre::Result<Option<Message>> {
+async fn handle_event(model: &mut Model) -> color_eyre::Result<Option<Message>> {
     if event::poll(Duration::from_millis(250))? {
         let event = event::read()?;
         if let Event::Key(key) = event
@@ -412,6 +479,13 @@ fn handle_event(model: &mut Model) -> color_eyre::Result<Option<Message>> {
 }
 
 fn handle_key(key: event::KeyEvent, model: &mut Model, event: Event) -> Option<Message> {
+    if !model.error_message.is_empty() {
+        return match key.code {
+            KeyCode::Esc => Some(Message::CancelErrorMessage),
+            _ => None,
+        };
+    }
+
     match key.code {
         KeyCode::Char('q') => Some(Message::Quit),
         _ => match model.app_view {
@@ -446,7 +520,12 @@ fn handle_key(key: event::KeyEvent, model: &mut Model, event: Event) -> Option<M
                 KeyCode::Char('d') => Some(Message::DeleteTask),
                 KeyCode::Char('y') => Some(Message::ConfirmDeleteTask),
                 KeyCode::Char('n') => Some(Message::CancelDeleteTask),
+                KeyCode::Char('l') => Some(Message::InitiateLogin),
                 KeyCode::Char(' ') => Some(Message::ToggleTimer),
+                _ => None,
+            },
+            AppView::LoginView => match key.code {
+                KeyCode::Esc => Some(Message::CancelLogin),
                 _ => None,
             },
         },

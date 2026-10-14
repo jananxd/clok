@@ -12,5 +12,14 @@
 - [ ] Do the time entry functionality with stopwatch. Just a simple one wherein when they enter specific task, they can start+stop the timer. When the timer is active, we should have the stopwatch running on the task list view.
 
 ## Sept 12, 2026
-- [ ] Implement the start timer
-- [ ] Make sure on the initial run of the app, we will get the tasks active timers.
+- [x] Implement the start timer
+- [x] Make sure on the initial run of the app, we will get the tasks active timers.
+
+# Oct 6, 2026
+- [ ] add a key binding to initiate the login flow.
+- [ ] create a way to produce an error, maybe introduce a new string in the model and a Popup component to show the error, allow a keybindings to also close the the popup, it will be nice if this Popup is a global component so we can reuse it on every error that we have and they close it using `ESC`.
+- [ ] Implement auth
+
+1. so what we wanna do is to do is call the init endpoint, the init endpoint will generate a device code and return a URL
+2. we should figure out how to open the OS browser and open the URL
+3. do a poll to the /auth/verify endpoint, maybe have a 15mins timeout, once we receive a 200 status code in that endpoint, then we can assume that it's verified and it will return a user object.
